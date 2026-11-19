@@ -26,6 +26,7 @@ from finshin_sdk.exceptions import (  # noqa: E402
 
 _check_config = probe_mod._check_config
 _map_construct_error = probe_mod._map_construct_error
+_PROXY_ITEM = probe_mod._PROXY_ITEM
 
 
 class TestRealProbeNoHang(unittest.TestCase):
@@ -44,7 +45,7 @@ class TestRealProbeNoHang(unittest.TestCase):
         errors = asyncio.run(
             _check_config("123:abc", "http://127.0.0.1:99999", get_me=ok_get_me)
         )
-        self.assertIn("proxy", errors, "非法端口应产出 proxy 错误文案")
+        self.assertIn(_PROXY_ITEM, errors, "非法端口应产出 proxy 错误文案")
 
 
 class TestMapConstructError(unittest.TestCase):
@@ -127,8 +128,8 @@ class TestCheckConfig(unittest.IsolatedAsyncioTestCase):
         errors = await _check_config(
             "123:abc", "aaa", probe=dead_probe, get_me=counting_me
         )
-        self.assertIn(FieldKey.PROXY, errors)
-        self.assertEqual(list(errors), [FieldKey.PROXY], "暂未检测那一条归校验侧标注")
+        self.assertIn(_PROXY_ITEM, errors)
+        self.assertEqual(list(errors), [_PROXY_ITEM], "暂未检测那一条归校验侧标注")
         self.assertEqual(get_me_called["n"], 0, "proxy 已坏不得再浪费一次 getMe")
 
     async def test_format_invalid_token_no_network(self) -> None:

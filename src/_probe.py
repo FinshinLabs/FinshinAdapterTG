@@ -11,7 +11,13 @@ from collections.abc import Awaitable, Callable
 import aiohttp_socks
 from aiohttp import ClientOSError
 
-from finshin_sdk.domain import FieldKey
+from finshin_sdk.domain import (
+    ConfigKey,
+    ConfigPath,
+    ConfigSection,
+    FieldKey,
+    Platform,
+)
 from finshin_sdk.exceptions import (
     ConnectivityError,
     DirectTimeoutError,
@@ -30,6 +36,9 @@ from finshin_sdk.exceptions import (
 # 通道探测预算，与本体探测引擎各自持有
 _PROBE_BUDGET = 9.0  # 秒
 _PROBE_BUDGET_DIRECT = 3.0  # 直连被墙时必然等满，预算取短以快速失败
+
+# 本适配器交出的代理项，探测错误表与面板标红共用同一身份
+_PROXY_ITEM = ConfigKey.PROXY.path(f"adapter.{Platform.TELEGRAM}", ConfigSection.PROXY)
 
 # 构造期异常消息里取协议名的规则
 _SCHEME_RE = re.compile(r"Invalid scheme component:\s*(.*)", re.IGNORECASE)
@@ -93,7 +102,7 @@ async def _probe_proxy(proxy: str) -> None:
         raise _map_construct_error(e, proxy) from e
 
 
-async def get_me(token: str, proxy: str) -> None:
+async def _get_me(token: str, proxy: str) -> None:
     """探测 Token 有效性
 
     - 失败抛连接性异常
@@ -144,8 +153,8 @@ async def _check_config(
     token: str,
     proxy: str,
     probe: Callable[[str], Awaitable[None]] = _probe_proxy,
-    get_me: Callable[[str, str], Awaitable[None]] = get_me,
-) -> dict[str, Exception]:
+    get_me: Callable[[str, str], Awaitable[None]] = _get_me,
+) -> dict[ConfigPath | str, Exception]:
     """双探测聚合
 
     - 代理先测，通过后再测令牌
@@ -155,26 +164,26 @@ async def _check_config(
     try:
         await probe(proxy)
     except ConnectivityError as e:
-        return {FieldKey.PROXY: e}
+        return {_PROXY_ITEM: e}
 
     if not _is_token_wellformed(token):
         return {FieldKey.TOKEN: TokenFormatError()}
 
-    errors: dict[str, Exception] = {}
+    errors: dict[ConfigPath | str, Exception] = {}
     try:
         await get_me(token, proxy)
     except TokenError as e:
         errors[FieldKey.TOKEN] = e
     except ConnectivityError as e:
         # getMe 阶段才暴露的网络问题归到 proxy
-        errors[FieldKey.PROXY] = e
+        errors[_PROXY_ITEM] = e
 
     return errors
 
 
 async def attempt_channel(
     token: str, proxy: str
-) -> tuple[str | None, dict[str, Exception]]:
+) -> tuple[str | None, dict[ConfigPath | str, Exception]]:
     """预算内探测单个通道
 
     - 轮次入口已在首帧前预触引擎，此处兜底漏触的直调方
@@ -183,14 +192,14 @@ async def attempt_channel(
     - 超时预算按通道类型取值，直连短、代理长
     """
     preload_engine()
-    errors: dict[str, Exception] = {}
+    errors: dict[ConfigPath | str, Exception] = {}
     try:
         errors = await asyncio.wait_for(
             _check_config(token, proxy),
             timeout=_PROBE_BUDGET_DIRECT if not proxy else _PROBE_BUDGET,
         )
     except TimeoutError:
-        errors = {FieldKey.PROXY: ProbeTimeoutError()}
+        errors = {_PROXY_ITEM: ProbeTimeoutError()}
     if not errors:
         return proxy, {}
     return None, errors
