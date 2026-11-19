@@ -1,6 +1,6 @@
 """Telegram 适配器入口
 
-- 交出装配、探测与预热三件
+- 交出装配、探测、预热与平台显示名四件
 """
 
 from finshin_sdk import AdapterParts, BaseAdapter
@@ -17,8 +17,9 @@ def _assemble(token: str, proxy: str | None) -> BaseAdapter:
 
 
 def parts() -> AdapterParts:
-    """交出本适配器入口模块的三件"""
+    """交出本适配器入口模块的四件"""
     return AdapterParts(
+        title="Telegram",
         assemble=_assemble,
         channel_probe=attempt_channel,
         engine_preload=preload_engine,
