@@ -31,6 +31,7 @@ from finshin_sdk.exceptions import (
     TokenFormatError,
 )
 
+from ._credential import TOKEN_PATTERN
 from ._log import note
 from ._messages import ConnectionMessage
 
@@ -167,7 +168,7 @@ async def _get_me(token: str, proxy: str) -> None:
 
 def _is_token_wellformed(token: str) -> bool:
     """本地校验 Token 结构"""
-    return re.fullmatch(r"\d+:[A-Za-z0-9_-]+", token.strip()) is not None
+    return TOKEN_PATTERN.fullmatch(token.strip()) is not None
 
 
 def preload_engine() -> None:
