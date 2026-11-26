@@ -8,7 +8,7 @@ packages = ["finshin_adapter_tg", "finshin_adapter_tg.features"]
 
 [project]
 name = "finshin-adapter-tg"
-version = "0.2.0"
+version = "0.3.0"
 description = "FinshinImpact 的 Telegram 适配器"
 requires-python = ">=3.11,<4.0"
 dependencies = [
