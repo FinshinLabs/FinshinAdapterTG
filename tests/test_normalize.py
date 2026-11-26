@@ -176,12 +176,17 @@ class TestCommandParsing(unittest.TestCase):
         self.assertTrue(event.command.matched)
         self.assertEqual((event.command.head, event.command.pieces), ("history", ()))
 
-    def test_pieces_keep_order(self) -> None:
-        event = _event(_update(text="/history -h 20"))
-        self.assertTrue(event.command.matched)
-        self.assertEqual(
-            (event.command.head, event.command.pieces), ("history", ("-h", "20"))
+    def test_pieces_keep_order_and_spaces(self) -> None:
+        """片段保持先后，命令名里的空格不并进名字"""
+        cases = (
+            ("/history -h 20", ("history", ("-h", "20"))),
+            ("/hist ory -h", ("hist", ("ory", "-h"))),
         )
+        for text, want in cases:
+            with self.subTest(text=text):
+                event = _event(_update(text=text))
+                self.assertTrue(event.command.matched)
+                self.assertEqual((event.command.head, event.command.pieces), want)
 
     def test_double_space_keeps_one_gap(self) -> None:
         event = _event(_update(text="/history  -h   20"))
@@ -194,8 +199,18 @@ class TestCommandParsing(unittest.TestCase):
                 self.assertFalse(event.command.matched)
                 self.assertTrue(event.command.format_error)
 
-    def test_stray_flag_shape_is_format_error(self) -> None:
-        for text in ("/history -", "/history --x", "/history -9x", "/history -1"):
+    def test_bad_command_shapes_are_format_error(self) -> None:
+        """命令名后缺内容、单横线或数字开关、斜杠后隔空格都算写法错"""
+        for text in (
+            "/history -",
+            "/history --x",
+            "/history -9x",
+            "/history -1",
+            "/ history",
+            "/",
+            "/@mybot",
+            "/-x",
+        ):
             with self.subTest(text=text):
                 event = _event(_update(text=text))
                 self.assertFalse(event.command.matched)
@@ -205,20 +220,6 @@ class TestCommandParsing(unittest.TestCase):
         event = _event(_update(text="/history -x"))
         self.assertTrue(event.command.matched)
         self.assertEqual(event.command.pieces, ("-x",))
-
-    def test_space_not_stripped(self) -> None:
-        event = _event(_update(text="/hist ory -h"))
-        self.assertTrue(event.command.matched)
-        self.assertEqual(
-            (event.command.head, event.command.pieces), ("hist", ("ory", "-h"))
-        )
-
-    def test_gap_after_prefix_is_format_error(self) -> None:
-        for text in ("/ history", "/", "/@mybot", "/-x"):
-            with self.subTest(text=text):
-                event = _event(_update(text=text))
-                self.assertFalse(event.command.matched)
-                self.assertTrue(event.command.format_error)
 
     def test_case_preserved(self) -> None:
         event = _event(_update(text="/HISTORY"))
@@ -238,16 +239,17 @@ class TestMentionAndReply(unittest.TestCase):
         entity = MessageEntity(type="mention", offset=offset, length=length)
         return _event(_update(text=text, entities=[entity]), _IDENTITY)
 
-    def test_mention_hits_bot(self) -> None:
-        self.assertTrue(self._mention_event("@MyBot 在吗", 6).is_mention_bot)
+    def test_mention_bot_identity(self) -> None:
+        """点名本机即算提到，点名别的机器人不算"""
+        cases = (("@MyBot 在吗", True), ("@Other 在吗", False))
+        for text, want in cases:
+            with self.subTest(text=text):
+                self.assertEqual(self._mention_event(text, 6).is_mention_bot, want)
 
     def test_mention_uses_utf16_offset(self) -> None:
         self.assertTrue(
             self._mention_event("🎉🎉 @MyBot 在吗", 6, offset=5).is_mention_bot
         )
-
-    def test_mention_other_bot_ignored(self) -> None:
-        self.assertFalse(self._mention_event("@Other 在吗", 6).is_mention_bot)
 
     def test_text_mention_hits_bot_id(self) -> None:
         entity = MessageEntity(type="text_mention", offset=0, length=2, user=_BOT)

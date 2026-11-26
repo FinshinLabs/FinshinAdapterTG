@@ -38,12 +38,11 @@ class TestIsLinkFailure(unittest.TestCase):
         ValueError("x"),
     )
 
-    def test_connection_errors_count_as_link_failure(self) -> None:
+    def test_link_failure_classification(self) -> None:
+        """连不上算断链，服务端明文答复与代码错都不算"""
         for exc in self.LINK:
             with self.subTest(type(exc).__name__):
                 self.assertTrue(is_link_failure(exc))
-
-    def test_server_answers_and_bugs_do_not(self) -> None:
         for exc in self.SERVER_OR_BUG:
             with self.subTest(type(exc).__name__):
                 self.assertFalse(is_link_failure(exc))
