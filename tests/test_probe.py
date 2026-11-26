@@ -11,14 +11,15 @@ import sys
 import unittest
 from pathlib import Path
 from typing import cast
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from exceptions import describe_error  # noqa: E402
 from finshin_adapter_tg import _probe as probe_mod  # noqa: E402
 from finshin_sdk.domain import FieldKey  # noqa: E402
 from finshin_sdk.exceptions import (  # noqa: E402
     ProxyAddressError,
+    ProxyConnectionRefusedError,
     ProxySchemeError,
     ProxySchemeMissingError,
     TokenError,
@@ -26,7 +27,7 @@ from finshin_sdk.exceptions import (  # noqa: E402
 
 _check_config = probe_mod._check_config
 _map_construct_error = probe_mod._map_construct_error
-_PROXY_ITEM = probe_mod._PROXY_ITEM
+_PROXY_ITEM = probe_mod.PROXY_ITEM
 
 
 class TestRealProbeNoHang(unittest.TestCase):
@@ -60,7 +61,7 @@ class TestMapConstructError(unittest.TestCase):
         mapped = _map_construct_error(ValueError("Invalid scheme component: "), "aaa")
         self.assertIsInstance(mapped, ProxySchemeMissingError)
         self.assertEqual(
-            describe_error(mapped), "代理地址缺少 :// 协议头，收到的是 aaa"
+            probe_mod._describe(mapped), "代理地址缺少 :// 协议头，收到的是 aaa"
         )
 
     def test_named_scheme_extracted(self) -> None:
@@ -148,6 +149,155 @@ class TestCheckConfig(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIn(FieldKey.TOKEN, errors)
         self.assertEqual(get_me_called["n"], 0, "格式非法的 token 应本地判定，不联网")
+
+
+class TestRunChannel(unittest.IsolatedAsyncioTestCase):
+    """回归点
+
+    - 通道通即交生效地址，token 错也算通道通
+    - 代理类错误换成交出者那句文案，超时归代理项
+    """
+
+    async def test_pass_reports_effective(self) -> None:
+        """全通过交生效地址与空错误表"""
+
+        async def ok(token: str, proxy: str) -> dict:
+            return {}
+
+        with (
+            patch.object(probe_mod, "_check_config", ok),
+            patch.object(probe_mod, "preload_engine"),
+            patch.object(probe_mod, "note"),
+        ):
+            result = await probe_mod.run_channel("123:abc", "http://127.0.0.1:7897", 5)
+
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.effective, "http://127.0.0.1:7897")
+        self.assertEqual(result.field_errors, {})
+
+    async def test_proxy_error_not_accepted(self) -> None:
+        """代理类错误交文案且不算通道通过"""
+
+        async def dead(token: str, proxy: str) -> dict:
+            return {_PROXY_ITEM: ProxyConnectionRefusedError(proxy=proxy)}
+
+        with (
+            patch.object(probe_mod, "_check_config", dead),
+            patch.object(probe_mod, "preload_engine"),
+            patch.object(probe_mod, "note"),
+        ):
+            result = await probe_mod.run_channel("123:abc", "http://127.0.0.1:7897", 5)
+
+        self.assertFalse(result.accepted)
+        self.assertIsNone(result.effective)
+        self.assertIn("无法连接到代理服务器", result.field_errors[_PROXY_ITEM])
+
+    async def test_token_error_keeps_channel_accepted(self) -> None:
+        """token 错只报字段错，通道本身算通"""
+
+        async def bad_token(token: str, proxy: str) -> dict:
+            return {FieldKey.TOKEN: TokenError()}
+
+        with (
+            patch.object(probe_mod, "_check_config", bad_token),
+            patch.object(probe_mod, "preload_engine"),
+            patch.object(probe_mod, "note"),
+        ):
+            result = await probe_mod.run_channel("123:abc", "", 5)
+
+        self.assertTrue(result.accepted)
+        self.assertEqual(result.field_errors, {FieldKey.TOKEN: "Token 无效"})
+
+    async def test_budget_timeout_maps_to_proxy_text(self) -> None:
+        """预算耗尽按代理项超时交结果，不上抛"""
+
+        async def slow(token: str, proxy: str) -> dict:
+            await asyncio.sleep(1)
+            return {}
+
+        with (
+            patch.object(probe_mod, "_check_config", slow),
+            patch.object(probe_mod, "preload_engine"),
+            patch.object(probe_mod, "note"),
+        ):
+            result = await probe_mod.run_channel("123:abc", "", 0.01)
+
+        self.assertFalse(result.accepted)
+        self.assertIn("验证超时", result.field_errors[_PROXY_ITEM])
+
+
+class TestProxySection(unittest.TestCase):
+    """回归点
+
+    - 代理地址的显隐由字段级条件交出，窗口不点名字段
+    """
+
+    def test_defaults_and_visibility(self) -> None:
+        """模式默认自动，代理项只在自动与仅配置两档可见"""
+        from finshin_adapter_tg import _config
+
+        fields = {field.key: field for field in _config._PROXY_SECTION.fields}
+        self.assertEqual(fields["proxy_mode"].default, "auto")
+        self.assertEqual(fields["proxy_mode"].options, ("auto", "cfg", "sys", "direct"))
+        self.assertEqual(fields["proxy"].default, "")
+        condition = fields["proxy"].visible_when[0]
+        self.assertEqual(condition.key, "proxy_mode")
+        visible = {
+            mode: mode in condition.values for mode in fields["proxy_mode"].options
+        }
+        self.assertEqual(
+            visible, {"auto": True, "cfg": True, "sys": False, "direct": False}
+        )
+
+
+class TestBuildPlan(unittest.IsolatedAsyncioTestCase):
+    """回归点
+
+    - 自动档按配置、系统、直连排，缺席行不给通道
+    - 单路档只排选定一路，缺地址即缺席轮
+    - 配置与系统同端点时系统行标跳过
+    """
+
+    def _plan(self, mode: str, cfg: str = "", system: str | None = None):
+        from finshin_adapter_tg import _plan
+
+        return _plan.build_connection_plan(
+            {"proxy": {"proxy_mode": mode, "proxy": cfg}}, "123:abc", system
+        )
+
+    def test_auto_orders_three_rows(self) -> None:
+        """自动档三行按配置、系统、直连排"""
+        plan = self._plan("auto", "http://127.0.0.1:7897", "http://127.0.0.1:7890")
+        self.assertEqual([row.row_id for row in plan.rows], ["cfg", "sys", "direct"])
+        self.assertEqual([ch.row_id for ch in plan.channels], ["cfg", "sys", "direct"])
+
+    def test_auto_absent_rows_have_no_channel(self) -> None:
+        """缺席的配置与系统行直接给终态，不发探测"""
+        plan = self._plan("auto")
+        self.assertEqual([row.status for row in plan.rows], ["fail", "fail", "pending"])
+        self.assertEqual([ch.row_id for ch in plan.channels], ["direct"])
+
+    def test_same_endpoint_skips_system(self) -> None:
+        """配置与系统同端点时系统行标跳过"""
+        addr = "http://127.0.0.1:7890"
+        plan = self._plan("auto", addr, addr)
+        self.assertEqual(plan.rows[1].status, "skip")
+        self.assertEqual([ch.row_id for ch in plan.channels], ["cfg", "direct"])
+
+    def test_single_cfg_absent_settles_on_proxy_row(self) -> None:
+        """仅配置档留空即缺席，红点落代理项"""
+        from finshin_sdk import ProbeOutcome
+
+        plan = self._plan("cfg")
+        self.assertEqual(plan.channels, ())
+        verdict = plan.finish(ProbeOutcome())
+        self.assertEqual(list(verdict.field_errors), [_PROXY_ITEM])
+
+    def test_direct_mode_budget_shorter(self) -> None:
+        """直连通道预算短于代理通道"""
+        plan = self._plan("direct", "http://127.0.0.1:7897")
+        self.assertEqual([ch.row_id for ch in plan.channels], ["direct"])
+        self.assertLess(plan.channels[0].budget, 9.0)
 
 
 if __name__ == "__main__":

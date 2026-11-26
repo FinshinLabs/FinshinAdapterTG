@@ -2,22 +2,20 @@
 
 - 代理与 Token 两级探测，校验轮与诊断轮共用
 - 构造期与请求期异常映射为字段错误，超时不上抛
+- 探测结果在适配器内换成给人看的那句话
 """
 
 import asyncio
 import re
+import time
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 import aiohttp_socks
 from aiohttp import ClientOSError
 
-from finshin_sdk.domain import (
-    ConfigKey,
-    ConfigPath,
-    ConfigSection,
-    FieldKey,
-    Platform,
-)
+from finshin_sdk import ProbeResult
+from finshin_sdk.domain import ConfigPath, FieldKey, Platform
 from finshin_sdk.exceptions import (
     ConnectivityError,
     DirectTimeoutError,
@@ -33,15 +31,49 @@ from finshin_sdk.exceptions import (
     TokenFormatError,
 )
 
-# 通道探测预算，与本体探测引擎各自持有
-_PROBE_BUDGET = 9.0  # 秒
-_PROBE_BUDGET_DIRECT = 3.0  # 直连被墙时必然等满，预算取短以快速失败
+from ._log import note
+from ._messages import ConnectionMessage
 
-# 本适配器交出的代理项，探测错误表与面板标红共用同一身份
-_PROXY_ITEM = ConfigKey.PROXY.path(f"adapter.{Platform.TELEGRAM}", ConfigSection.PROXY)
+# 本适配器交出的代理项，探测错误与面板标红共用同一身份
+PROXY_ITEM = ConfigPath(
+    source=f"adapter.{Platform.TELEGRAM}", section="proxy", key="proxy"
+)
+
+# 异常到文案的映射，沿继承链取最近的一条
+_TEXTS: dict[type, str] = {
+    TokenError: ConnectionMessage.TOKEN_INVALID,
+    TokenFormatError: ConnectionMessage.TOKEN_MALFORMED,
+    ProbeTimeoutError: ConnectionMessage.TIMEOUT,
+    TelegramServerError: ConnectionMessage.SERVER_UNREACHABLE,
+    DirectTimeoutError: ConnectionMessage.DIRECT_TIMEOUT,
+    ProxyError: ConnectionMessage.PROXY_INVALID,
+    ProxySchemeError: ConnectionMessage.SCHEME_UNSUPPORTED,
+    ProxySchemeMissingError: ConnectionMessage.SCHEME_MISSING,
+    ProxyAddressError: ConnectionMessage.ADDRESS_UNPARSABLE,
+    ProxyConnectionRefusedError: ConnectionMessage.PROXY_REFUSED,
+    ProxyTimeoutError: ConnectionMessage.PROXY_TIMEOUT,
+}
 
 # 构造期异常消息里取协议名的规则
 _SCHEME_RE = re.compile(r"Invalid scheme component:\s*(.*)", re.IGNORECASE)
+
+
+def _describe(exc: BaseException) -> str:
+    """取异常那句给人看的话
+
+    - 沿继承链往上找最近的一句文案
+    - 表里没有即报异常类名
+    """
+    attrs: dict[str, Any] = vars(exc)
+    for cls in type(exc).__mro__:
+        template = _TEXTS.get(cls)
+        if template is None:
+            continue
+        try:
+            return template.format(**attrs)
+        except (KeyError, IndexError):
+            return template
+    return type(exc).__name__
 
 
 def _map_construct_error(e: Exception, proxy: str) -> ConnectivityError:
@@ -158,13 +190,13 @@ async def _check_config(
     """双探测聚合
 
     - 代理先测，通过后再测令牌
-    - 坏掉的字段交出异常本体，给人看的那句由校验侧取
+    - 坏掉的字段交出异常本体
     - 代理失败时只交代理错误
     """
     try:
         await probe(proxy)
     except ConnectivityError as e:
-        return {_PROXY_ITEM: e}
+        return {PROXY_ITEM: e}
 
     if not _is_token_wellformed(token):
         return {FieldKey.TOKEN: TokenFormatError()}
@@ -176,30 +208,34 @@ async def _check_config(
         errors[FieldKey.TOKEN] = e
     except ConnectivityError as e:
         # getMe 阶段才暴露的网络问题归到 proxy
-        errors[_PROXY_ITEM] = e
+        errors[PROXY_ITEM] = e
 
     return errors
 
 
-async def attempt_channel(
-    token: str, proxy: str
-) -> tuple[str | None, dict[ConfigPath | str, Exception]]:
+async def run_channel(token: str, proxy: str, budget: float) -> ProbeResult:
     """预算内探测单个通道
 
     - 轮次入口已在首帧前预触引擎，此处兜底漏触的直调方
-    - 返回 (生效通道或 None, 坏掉字段的异常)
-    - 空表即该通道通过
-    - 超时预算按通道类型取值，直连短、代理长
+    - 通道通即交生效地址，token 错也算通道通
+    - 代理类错误换成文案随结果交出
     """
     preload_engine()
-    errors: dict[ConfigPath | str, Exception] = {}
+    started = time.monotonic()
     try:
-        errors = await asyncio.wait_for(
-            _check_config(token, proxy),
-            timeout=_PROBE_BUDGET_DIRECT if not proxy else _PROBE_BUDGET,
-        )
+        errors = await asyncio.wait_for(_check_config(token, proxy), timeout=budget)
     except TimeoutError:
-        errors = {_PROXY_ITEM: ProbeTimeoutError()}
+        errors = {PROXY_ITEM: ProbeTimeoutError()}
+    via = (
+        ConnectionMessage.VIA_DIRECT
+        if not proxy
+        else ConnectionMessage.VIA_PROXY.format(proxy=proxy)
+    )
+    note(ConnectionMessage.COST.format(via=via, cost=time.monotonic() - started))
     if not errors:
-        return proxy, {}
-    return None, errors
+        return ProbeResult(accepted=True, effective=proxy)
+    texts = {key: _describe(value) for key, value in errors.items()}
+    return ProbeResult(
+        accepted=PROXY_ITEM not in errors,
+        field_errors=texts,
+    )
