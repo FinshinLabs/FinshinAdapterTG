@@ -16,14 +16,15 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from finshin_adapter_tg import _probe as probe_mod  # noqa: E402
-from finshin_sdk.domain import FieldKey  # noqa: E402
-from finshin_sdk.exceptions import (  # noqa: E402
+from finshin_adapter_tg._credential import CREDENTIAL  # noqa: E402
+from finshin_adapter_tg._errors import (  # noqa: E402
     ProxyAddressError,
     ProxyConnectionRefusedError,
     ProxySchemeError,
     ProxySchemeMissingError,
     TokenError,
 )
+from finshin_sdk.domain import RowStatus  # noqa: E402
 
 _check_config = probe_mod._check_config
 _map_construct_error = probe_mod._map_construct_error
@@ -113,7 +114,7 @@ class TestCheckConfig(unittest.IsolatedAsyncioTestCase):
             probe=self._ok_probe,
             get_me=bad_me,
         )
-        self.assertIn(FieldKey.TOKEN, errors)
+        self.assertIn(CREDENTIAL.item, errors)
 
     async def test_bad_proxy_marks_proxy_only(self) -> None:
         """代理坏时只交代理一条，省掉那次 getMe"""
@@ -147,7 +148,7 @@ class TestCheckConfig(unittest.IsolatedAsyncioTestCase):
             probe=self._ok_probe,
             get_me=counting_me,
         )
-        self.assertIn(FieldKey.TOKEN, errors)
+        self.assertIn(CREDENTIAL.item, errors)
         self.assertEqual(get_me_called["n"], 0, "格式非法的 token 应本地判定，不联网")
 
 
@@ -196,7 +197,7 @@ class TestRunChannel(unittest.IsolatedAsyncioTestCase):
         """token 错只报字段错，通道本身算通"""
 
         async def bad_token(token: str, proxy: str) -> dict:
-            return {FieldKey.TOKEN: TokenError()}
+            return {CREDENTIAL.item: TokenError()}
 
         with (
             patch.object(probe_mod, "_check_config", bad_token),
@@ -206,7 +207,7 @@ class TestRunChannel(unittest.IsolatedAsyncioTestCase):
             result = await probe_mod.run_channel("123:abc", "", 5)
 
         self.assertTrue(result.accepted)
-        self.assertEqual(result.field_errors, {FieldKey.TOKEN: "Token 无效"})
+        self.assertEqual(result.field_errors, {CREDENTIAL.item: "Token 无效"})
 
     async def test_budget_timeout_maps_to_proxy_text(self) -> None:
         """预算耗尽按代理项超时交结果，不上抛"""
@@ -262,7 +263,9 @@ class TestBuildPlan(unittest.IsolatedAsyncioTestCase):
         from finshin_adapter_tg import _plan
 
         return _plan.build_connection_plan(
-            {"proxy": {"proxy_mode": mode, "proxy": cfg}}, "123:abc", system
+            {"proxy": {"proxy_mode": mode, "proxy": cfg}},
+            "123:abc",
+            system_proxy=system,
         )
 
     def test_auto_orders_three_rows(self) -> None:
@@ -274,19 +277,22 @@ class TestBuildPlan(unittest.IsolatedAsyncioTestCase):
     def test_auto_absent_rows_have_no_channel(self) -> None:
         """缺席的配置与系统行直接给终态，不发探测"""
         plan = self._plan("auto")
-        self.assertEqual([row.status for row in plan.rows], ["fail", "fail", "pending"])
+        self.assertEqual(
+            [row.status for row in plan.rows],
+            [RowStatus.FAIL, RowStatus.FAIL, RowStatus.PENDING],
+        )
         self.assertEqual([ch.row_id for ch in plan.channels], ["direct"])
 
     def test_same_endpoint_skips_system(self) -> None:
         """配置与系统同端点时系统行标跳过"""
         addr = "http://127.0.0.1:7890"
         plan = self._plan("auto", addr, addr)
-        self.assertEqual(plan.rows[1].status, "skip")
+        self.assertEqual(plan.rows[1].status, RowStatus.SKIP)
         self.assertEqual([ch.row_id for ch in plan.channels], ["cfg", "direct"])
 
     def test_single_cfg_absent_settles_on_proxy_row(self) -> None:
         """仅配置档留空即缺席，红点落代理项"""
-        from finshin_sdk import ProbeOutcome
+        from finshin_sdk.domain import ProbeOutcome
 
         plan = self._plan("cfg")
         self.assertEqual(plan.channels, ())

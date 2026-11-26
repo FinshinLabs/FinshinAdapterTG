@@ -6,8 +6,10 @@
 from typing import Any
 
 from finshin_sdk import BaseAdapter, InteractionPort, RouterBuilder
-from finshin_sdk.domain import Platform, RouteSink
+from finshin_sdk.domain import RouteSink
+from finshin_sdk.domain.ids import PlatformCode
 
+from ._config import PLATFORM
 from ._interaction import TelegramInteractionPort
 from ._normalize import NormalizeMiddleware
 from ._session import SSLUnverifiedSession
@@ -31,9 +33,9 @@ class TelegramAdapter(BaseAdapter):
         self._dispatcher.update.outer_middleware(self._normalizer)
 
     @property
-    def platform(self) -> Platform:
+    def platform(self) -> PlatformCode:
         """平台标识"""
-        return Platform.TELEGRAM
+        return PLATFORM
 
     @property
     def interaction(self) -> InteractionPort:

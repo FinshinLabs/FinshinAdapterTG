@@ -10,8 +10,8 @@ from aiogram import Router
 from aiogram.filters import Filter
 from aiogram.types import Message
 
-from finshin_sdk import HandlerContext, MessageRoute
-from finshin_sdk.domain import RouteMatcher
+from finshin_sdk import HandlerContext
+from finshin_sdk.domain import MessageRoute, RouteMatcher
 
 
 class _Predicate(Filter):

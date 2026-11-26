@@ -7,17 +7,19 @@
 import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NewType
 
 from aiogram.types import Message, TelegramObject
 
-from finshin_sdk.domain.ids import ChatId, MediaGroupId, UserId
+from finshin_sdk.domain.ids import ChatId, UserId
 
 from .._fields import sender_id
 from .._log import fail
 
 # 分发器交下的事件链入口
 UpdateHandler = Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]]
+
+MediaGroupId = NewType("MediaGroupId", str)
 
 # 缓冲键：会话、组标识、发言人
 _AlbumKey = tuple[ChatId, MediaGroupId, UserId]

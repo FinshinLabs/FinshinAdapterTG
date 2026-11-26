@@ -1,10 +1,15 @@
 """Telegram 配置段
 
+- 交出本平台的平台码与来源码
 - 交出代理模式与代理地址两项
 - 代理地址的显隐由字段级条件声明，窗口不点名字段
 """
 
-from finshin_sdk.domain import FieldCondition, FieldSpec, SectionSpec
+from finshin_sdk.domain.config import FieldCondition, FieldSpec, SectionSpec
+from finshin_sdk.domain.ids import PlatformCode, SourceCode
+
+PLATFORM = PlatformCode("tg")
+SOURCE = SourceCode(f"adapter.{PLATFORM}")
 
 # 段名与段表，入口件只交 SECTIONS
 _SECTION = "proxy"

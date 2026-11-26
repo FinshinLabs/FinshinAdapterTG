@@ -7,23 +7,23 @@
 from collections.abc import Mapping
 from functools import partial
 
-from finshin_sdk import (
-    ConfigSnapshot,
+from finshin_sdk.domain import (
+    ConfigValues,
     ConnectionPlan,
     PlanVerdict,
     ProbeChannel,
     ProbeOutcome,
     ProbeResult,
     ProbeRow,
+    RowStatus,
 )
-from finshin_sdk.domain import ConfigPath, ConfigValue, Platform
+from finshin_sdk.domain.config import ConfigPath, ConfigValue
 
+from ._config import SOURCE
 from ._messages import ConnectionMessage
 from ._probe import PROXY_ITEM, run_channel
 
-_MODE_ITEM = ConfigPath(
-    source=f"adapter.{Platform.TELEGRAM}", section="proxy", key="proxy_mode"
-)
+_MODE_ITEM = ConfigPath(source=SOURCE, section="proxy", key="proxy_mode")
 
 # 通道探测预算（秒），与探针共用同一份
 _PROBE_BUDGET = 9.0
@@ -38,7 +38,7 @@ _SINGLE_MODES = (_CFG, _SYS, _DIRECT)
 
 
 def build_connection_plan(
-    values: ConfigSnapshot, token: str, system_proxy: str | None = None
+    values: ConfigValues, token: str, *, system_proxy: str | None = None
 ) -> ConnectionPlan:
     """按当前配置造一份检查计划
 
@@ -105,7 +105,7 @@ def _auto_plan(
             ProbeRow(
                 row_id=_CFG,
                 title=ConnectionMessage.ROW_CFG,
-                status="fail",
+                status=RowStatus.FAIL,
                 detail=ConnectionMessage.CFG_EMPTY,
             )
         )
@@ -115,7 +115,7 @@ def _auto_plan(
             ProbeRow(
                 row_id=_SYS,
                 title=ConnectionMessage.ROW_SYS,
-                status="fail",
+                status=RowStatus.FAIL,
                 detail=ConnectionMessage.SYS_UNAVAILABLE,
             )
         )
@@ -124,7 +124,7 @@ def _auto_plan(
             ProbeRow(
                 row_id=_SYS,
                 title=ConnectionMessage.ROW_SYS,
-                status="skip",
+                status=RowStatus.SKIP,
                 detail=ConnectionMessage.SYS_DEDUP,
             )
         )
@@ -153,7 +153,10 @@ def _single_plan(
     else:
         rows.append(
             ProbeRow(
-                row_id=row_id, title=_row_title(row_id), status="fail", detail=absent
+                row_id=row_id,
+                title=_row_title(row_id),
+                status=RowStatus.FAIL,
+                detail=absent,
             )
         )
     return rows, channels
@@ -259,7 +262,7 @@ def _finish(
                 failure_detail=ConnectionMessage.DIAG_ADVICE_NONE,
             )
     if not channels:
-        absent = next((row for row in rows if row.status == "fail"), None)
+        absent = next((row for row in rows if row.status == RowStatus.FAIL), None)
         if absent is not None:
             return PlanVerdict(
                 field_errors={_fault_row(mode): absent.detail},

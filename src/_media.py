@@ -11,7 +11,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import FSInputFile, Message
 
 from finshin_sdk.domain import ContentKind
-from finshin_sdk.dto import MsgReferenceDTO, OutboundPayloadDTO, PrincipalDTO
+from finshin_sdk.dto import MessageRefDTO, OutboundPayloadDTO, PrincipalDTO
 
 from ._errors import guard_send, is_vanished, translate
 from ._fields import build_ref, chat_id_of, reply_id_of
@@ -88,8 +88,8 @@ class MediaSender:
         principal: PrincipalDTO,
         content: OutboundPayloadDTO,
         *,
-        reply_ref: MsgReferenceDTO | None,
-    ) -> MsgReferenceDTO | None:
+        reply_ref: MessageRefDTO | None,
+    ) -> MessageRefDTO | None:
         """发送媒体
 
         - 同一份照片重复外发时按已记下的标识发，文件体只传一次

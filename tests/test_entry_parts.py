@@ -31,6 +31,7 @@ class TestEntryParts(unittest.TestCase):
         """凭证声明带输入框名与身份推导"""
         credential = entry.parts().credential
         self.assertEqual(credential.label, "Bot Token")
+        self.assertEqual(credential.item.dotted, "adapter.tg.credential.token")
         self.assertEqual(credential.identity("123456:AA-test-token"), "tg.123456")
         self.assertEqual(credential.identity("not-a-token"), "")
 

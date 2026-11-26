@@ -12,7 +12,7 @@ from aiogram.types import Message
 
 from finshin_sdk import InteractionPort
 from finshin_sdk.domain import ContentKind
-from finshin_sdk.dto import MsgReferenceDTO, OutboundPayloadDTO, PrincipalDTO
+from finshin_sdk.dto import MessageRefDTO, OutboundPayloadDTO, PrincipalDTO
 
 from ._errors import guard_send, is_vanished
 from ._fields import build_ref, chat_id_of, reply_id_of
@@ -47,8 +47,8 @@ class TelegramInteractionPort(InteractionPort):
         content: OutboundPayloadDTO,
         *,
         mention: bool = False,
-        reply_ref: MsgReferenceDTO | None = None,
-    ) -> MsgReferenceDTO | None:
+        reply_ref: MessageRefDTO | None = None,
+    ) -> MessageRefDTO | None:
         """发送消息
 
         - 超长文字自动分段
@@ -62,7 +62,7 @@ class TelegramInteractionPort(InteractionPort):
             raise ValueError(f"不支持的外发内容种类: {content.kind}")
         return await self._media.send(principal, content, reply_ref=reply_ref)
 
-    async def probe_existence(self, target: MsgReferenceDTO) -> bool:
+    async def probe_existence(self, target: MessageRefDTO) -> bool:
         """探测消息是否仍存在
 
         - 靠改写文本报出的错误串区分已删除与无权编辑
@@ -92,8 +92,8 @@ class TelegramInteractionPort(InteractionPort):
         text: str,
         *,
         mention: bool,
-        reply_ref: MsgReferenceDTO | None,
-    ) -> MsgReferenceDTO | None:
+        reply_ref: MessageRefDTO | None,
+    ) -> MessageRefDTO | None:
         """发送文字
 
         - 超长按分段阈值切片

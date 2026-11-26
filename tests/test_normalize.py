@@ -108,8 +108,8 @@ class TestScopeAndContent(unittest.TestCase):
         self.assertEqual(event.content.text, "你好")
         self.assertEqual(event.content.media, ())
         self.assertEqual(event.principal.container, "u456")
-        self.assertEqual(event.principal.key, "tg.u456.456")
-        self.assertEqual(event.ref.key, "tg.u456.7")
+        self.assertEqual(event.principal.dotted, "tg.u456.456")
+        self.assertEqual(event.ref.dotted, "tg.u456.7")
 
     def test_group_container_and_name(self) -> None:
         event = _event(_update(text="在吗"))

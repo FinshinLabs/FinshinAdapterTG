@@ -8,9 +8,11 @@
 from aiogram.enums import ChatType, ContentType
 from aiogram.types import Message, User
 
-from finshin_sdk.domain import ChatScope, ContentKind, Platform
-from finshin_sdk.domain.ids import ContainerKey, MessageId, UserId
-from finshin_sdk.dto import MsgReferenceDTO
+from finshin_sdk.domain import ChatScope, ContentKind
+from finshin_sdk.domain.ids import ContainerCode, MessageId, UserId
+from finshin_sdk.dto import MessageRefDTO
+
+from ._config import PLATFORM
 
 _ANONYMOUS_USER = UserId("unknown")  # 匿名代发无 user 段时的占位值
 _GROUP_PREFIX = "g"  # 容器段的群聊前缀，私聊是 u
@@ -87,16 +89,16 @@ def sender_id(message: Message) -> UserId:
     return user_id_of(message.from_user)
 
 
-def build_ref(message: Message, container: ContainerKey) -> MsgReferenceDTO:
+def build_ref(message: Message, container: ContainerCode) -> MessageRefDTO:
     """构造消息定位三元组"""
-    return MsgReferenceDTO(
-        platform=Platform.TELEGRAM,
+    return MessageRefDTO(
+        platform=PLATFORM,
         container=container,
         message_id=MessageId(str(message.message_id)),
     )
 
 
-def chat_id_of(container: ContainerKey) -> int:
+def chat_id_of(container: ContainerCode) -> int:
     """容器段反推会话 id
 
     - 群聊 g 前缀补负号，私聊 u 前缀即用户 id
@@ -108,6 +110,6 @@ def chat_id_of(container: ContainerKey) -> int:
     return int(container[1:])
 
 
-def reply_id_of(ref: MsgReferenceDTO | None) -> int | None:
+def reply_id_of(ref: MessageRefDTO | None) -> int | None:
     """引用目标转消息 id"""
     return int(ref.message_id) if ref is not None else None

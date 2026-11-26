@@ -14,38 +14,41 @@ from typing import Any
 import aiohttp_socks
 from aiohttp import ClientOSError
 
-from finshin_sdk import ProbeResult
-from finshin_sdk.domain import ConfigPath, FieldKey, Platform
+from finshin_sdk.domain import ProbeResult
+from finshin_sdk.domain.config import ConfigPath
 from finshin_sdk.exceptions import (
     ConnectivityError,
-    DirectTimeoutError,
+    ProbeCrashedError,
     ProbeTimeoutError,
+    ServerUnreachableError,
+)
+
+from ._config import SOURCE
+from ._credential import CREDENTIAL, TOKEN_PATTERN
+from ._errors import (
+    DirectTimeoutError,
     ProxyAddressError,
     ProxyConnectionRefusedError,
     ProxyError,
     ProxySchemeError,
     ProxySchemeMissingError,
     ProxyTimeoutError,
-    TelegramServerError,
     TokenError,
     TokenFormatError,
 )
-
-from ._credential import TOKEN_PATTERN
 from ._log import note
 from ._messages import ConnectionMessage
 
 # 本适配器交出的代理项，探测错误与面板标红共用同一身份
-PROXY_ITEM = ConfigPath(
-    source=f"adapter.{Platform.TELEGRAM}", section="proxy", key="proxy"
-)
+PROXY_ITEM = ConfigPath(source=SOURCE, section="proxy", key="proxy")
 
 # 异常到文案的映射，沿继承链取最近的一条
 _TEXTS: dict[type, str] = {
     TokenError: ConnectionMessage.TOKEN_INVALID,
     TokenFormatError: ConnectionMessage.TOKEN_MALFORMED,
     ProbeTimeoutError: ConnectionMessage.TIMEOUT,
-    TelegramServerError: ConnectionMessage.SERVER_UNREACHABLE,
+    ProbeCrashedError: ConnectionMessage.CRASH,
+    ServerUnreachableError: ConnectionMessage.SERVER_UNREACHABLE,
     DirectTimeoutError: ConnectionMessage.DIRECT_TIMEOUT,
     ProxyError: ConnectionMessage.PROXY_INVALID,
     ProxySchemeError: ConnectionMessage.SCHEME_UNSUPPORTED,
@@ -111,7 +114,7 @@ def _map_request_error(e: Exception, proxy: str) -> ConnectivityError:
             return DirectTimeoutError()
         if isinstance(e.__cause__, ClientOSError):
             return ProxyConnectionRefusedError(proxy=proxy)
-        return TelegramServerError()
+        return ServerUnreachableError()
 
     if isinstance(e, aiohttp_socks.ProxyTimeoutError):
         return ProxyTimeoutError(proxy=proxy)
@@ -119,7 +122,7 @@ def _map_request_error(e: Exception, proxy: str) -> ConnectivityError:
     if isinstance(e, (aiohttp_socks.ProxyError, aiohttp_socks.ProxyConnectionError)):
         return ProxyConnectionRefusedError(proxy=proxy)
 
-    return ConnectivityError()
+    return ProbeCrashedError()
 
 
 async def _probe_proxy(proxy: str) -> None:
@@ -187,7 +190,7 @@ async def _check_config(
     proxy: str,
     probe: Callable[[str], Awaitable[None]] = _probe_proxy,
     get_me: Callable[[str, str], Awaitable[None]] = _get_me,
-) -> dict[ConfigPath | str, Exception]:
+) -> dict[ConfigPath, Exception]:
     """双探测聚合
 
     - 代理先测，通过后再测令牌
@@ -200,13 +203,13 @@ async def _check_config(
         return {PROXY_ITEM: e}
 
     if not _is_token_wellformed(token):
-        return {FieldKey.TOKEN: TokenFormatError()}
+        return {CREDENTIAL.item: TokenFormatError()}
 
-    errors: dict[ConfigPath | str, Exception] = {}
+    errors: dict[ConfigPath, Exception] = {}
     try:
         await get_me(token, proxy)
     except TokenError as e:
-        errors[FieldKey.TOKEN] = e
+        errors[CREDENTIAL.item] = e
     except ConnectivityError as e:
         # getMe 阶段才暴露的网络问题归到 proxy
         errors[PROXY_ITEM] = e
@@ -227,6 +230,9 @@ async def run_channel(token: str, proxy: str, budget: float) -> ProbeResult:
         errors = await asyncio.wait_for(_check_config(token, proxy), timeout=budget)
     except TimeoutError:
         errors = {PROXY_ITEM: ProbeTimeoutError()}
+    except Exception:
+        # 探测自己崩了，按兜底行报检查异常
+        errors = {PROXY_ITEM: ProbeCrashedError()}
     via = (
         ConnectionMessage.VIA_DIRECT
         if not proxy

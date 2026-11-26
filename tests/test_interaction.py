@@ -13,15 +13,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from aiogram.exceptions import TelegramAPIError  # noqa: E402
 from aiogram.methods import SendMessage  # noqa: E402
 
+from finshin_adapter_tg._config import PLATFORM  # noqa: E402
 from finshin_adapter_tg._fields import chat_id_of  # noqa: E402
 from finshin_adapter_tg._interaction import (  # noqa: E402
     TelegramInteractionPort,
     _split_chunks,
 )
-from finshin_sdk.domain import ContentKind, Platform  # noqa: E402
-from finshin_sdk.domain.ids import ContainerKey, MessageId, UserId  # noqa: E402
+from finshin_sdk.domain import ContentKind  # noqa: E402
+from finshin_sdk.domain.ids import (  # noqa: E402
+    ContainerCode,
+    MessageId,
+    UserId,
+)
 from finshin_sdk.dto import (  # noqa: E402
-    MsgReferenceDTO,
+    MessageRefDTO,
     OutboundPayloadDTO,
     PrincipalDTO,
 )
@@ -32,16 +37,16 @@ _SEGMENT = 4000
 
 def _principal(container: str = "u456", user: str = "456") -> PrincipalDTO:
     return PrincipalDTO(
-        platform=Platform.TELEGRAM,
-        container=ContainerKey(container),
+        platform=PLATFORM,
+        container=ContainerCode(container),
         user=UserId(user),
     )
 
 
-def _ref(container: str = "u456", message_id: str = "7") -> MsgReferenceDTO:
-    return MsgReferenceDTO(
-        platform=Platform.TELEGRAM,
-        container=ContainerKey(container),
+def _ref(container: str = "u456", message_id: str = "7") -> MessageRefDTO:
+    return MessageRefDTO(
+        platform=PLATFORM,
+        container=ContainerCode(container),
         message_id=MessageId(message_id),
     )
 
@@ -95,14 +100,14 @@ class TestContainerReverse(unittest.TestCase):
     """容器段反推"""
 
     def test_group_takes_negative(self) -> None:
-        self.assertEqual(chat_id_of(ContainerKey("g100123")), -100123)
+        self.assertEqual(chat_id_of(ContainerCode("g100123")), -100123)
 
     def test_private_takes_user_id(self) -> None:
-        self.assertEqual(chat_id_of(ContainerKey("u456")), 456)
+        self.assertEqual(chat_id_of(ContainerCode("u456")), 456)
 
     def test_empty_container_rejected(self) -> None:
         with self.assertRaises(ValueError):
-            chat_id_of(ContainerKey(""))
+            chat_id_of(ContainerCode(""))
 
 
 class TestChunking(unittest.TestCase):

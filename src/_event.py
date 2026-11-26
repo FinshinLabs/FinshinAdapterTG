@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from aiogram.enums import MessageEntityType
 from aiogram.types import Message, Update
 
-from finshin_sdk.domain import ContentKind, Platform, is_flag_name, make_container
+from finshin_sdk.domain import ContentKind, is_flag_name, make_container
 from finshin_sdk.domain.ids import ChatId, MessageId, UserId
 from finshin_sdk.dto import (
     CommandDTO,
@@ -23,6 +23,7 @@ from finshin_sdk.dto import (
     PrincipalDTO,
 )
 
+from ._config import PLATFORM
 from ._fields import (
     build_ref,
     display_name,
@@ -145,7 +146,7 @@ def _event_of(
     return InboundEventDTO(
         ref=build_ref(message, container),
         principal=PrincipalDTO(
-            platform=Platform.TELEGRAM,
+            platform=PLATFORM,
             container=container,
             user=user_id,
         ),

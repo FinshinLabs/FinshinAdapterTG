@@ -17,11 +17,12 @@ from aiogram.exceptions import TelegramAPIError  # noqa: E402
 from aiogram.methods import SendMessage  # noqa: E402
 
 from finshin_adapter_tg import _media as media_mod  # noqa: E402
+from finshin_adapter_tg._config import PLATFORM  # noqa: E402
 from finshin_adapter_tg._interaction import (  # noqa: E402
     TelegramInteractionPort,
 )
-from finshin_sdk.domain import ContentKind, Platform  # noqa: E402
-from finshin_sdk.domain.ids import ContainerKey, UserId  # noqa: E402
+from finshin_sdk.domain import ContentKind  # noqa: E402
+from finshin_sdk.domain.ids import ContainerCode, UserId  # noqa: E402
 from finshin_sdk.dto import OutboundPayloadDTO, PrincipalDTO  # noqa: E402
 
 _SENT_ID = "PHOTO-ID-1"  # 上传回执里的标识
@@ -33,7 +34,7 @@ def _payload(path: str) -> OutboundPayloadDTO:
 
 def _principal() -> PrincipalDTO:
     return PrincipalDTO(
-        platform=Platform.TELEGRAM, container=ContainerKey("u456"), user=UserId("456")
+        platform=PLATFORM, container=ContainerCode("u456"), user=UserId("456")
     )
 
 
